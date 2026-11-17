@@ -41,7 +41,9 @@ function Base.:(>)(x::T, r::VersionRange{T}) where {T<:Union{VersionNumber, Vers
 end
 Base.:(==)(a::VersionRange, b::VersionRange) = (==)((a.lb, a.lbinclusive, a.ub, a.ubinclusive), (b.lb, b.lbinclusive, b.ub, b.ubinclusive))
 Base.hash(a::VersionRange, h::UInt) = hash((a.lb, a.lbinclusive, a.ub, a.ubinclusive), hash(0x80ebd9334ee9e2b1, h))
-Base.isless(a::VersionRange, b::VersionRange) = isless((a.lb, !a.lbinclusive, a.ub, a.ubinclusive), (b.lb, !b.lbinclusive, b.ub, b.ubinclusive))
+Base.isless(a::VersionRange, b::VersionRange) =
+    bound_isless(lower_bound_tuple(a), lower_bound_tuple(b)) ||
+    (bound_equivalent(lower_bound_tuple(a), lower_bound_tuple(b)) && bound_isless(upper_bound_tuple(a), upper_bound_tuple(b)))
 Base.tryparse(::Type{VersionRange}, x::AbstractString) = tryparse(VersionRange{VersionString}, x)
 function Base.tryparse(::Type{VersionRange{V}}, arg::AbstractString) where {V}
     # This supports parsing both GitHub and EUVD-like range syntaxes.

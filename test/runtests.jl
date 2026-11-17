@@ -49,6 +49,7 @@ end
         @test SecurityAdvisories.overlaps(VR(">= 0.5, <= 1.0"), VR(">= 1.0.0, < 2"))
         @test merge_ranges(VR.([">= 0.5, <= 1.0", ">= 1.0.0, < 2"])) == [VR(">= 0.5, < 2")]
         @test merge_ranges(VR.([">= 0.5, <= 1.0", ">= 0.6, < 1.0.0"])) == [VR(">= 0.5, <= 1.0")]
+        @test merge_ranges(VR.(["> 1.0, < 2", "= 1.0.0"])) == [VR(">= 1.0.0, < 2")]
     end
 end
 
