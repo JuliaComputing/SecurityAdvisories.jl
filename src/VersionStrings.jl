@@ -24,9 +24,9 @@ struct VersionString
     str::String
 end
 Base.tryparse(::Type{VersionString}, str) = VersionString(str)
-# Versions the project's scheme considers equal (1.0 and 1.0.0) must be == too, or inclusive range bounds miss them
-Base.:(==)(a::VersionString, b::VersionString) = a.str == b.str ||
-    (!isnothing(VERSION_PROJECT[]) && Repology.vercmp(VERSION_PROJECT[], a.str, b.str) == 0)
+Base.:(==)(a::VersionString, b::VersionString) = a.str == b.str
+# Not `<` or `==`: versions the project's scheme orders equally (1.0 and 1.0.0) satisfy inclusive bounds without being ==
+Base.:(<=)(a::VersionString, b::VersionString) = !isless(b, a)
 Base.hash(a::VersionString, h::UInt) = hash(a.str, hash(0x30eeab00fd453583, h))
 Base.Broadcast.broadcastable(a::VersionString) = Ref(a)
 
