@@ -121,12 +121,16 @@ end
 # Simple helpers for sorting correctly
 lower_bound_tuple(r::VersionRange) = (r.lb, !r.lbinclusive) # inclusive lower bounds are smaller than exclusive ones — they include a smaller version than their exclusive counterparts
 upper_bound_tuple(r::VersionRange) = (r.ub, r.ubinclusive)  # whereas inclusive upper bounds are bigger — they include a bigger version
+# Tuple comparisons break ties with `isequal`, which misses versions a project's scheme orders equally (1.0 and 1.0.0)
+version_equivalent(a, b) = !isless(a, b) && !isless(b, a)
+bound_isless((a, ai), (b, bi)) = isless(a, b) || (version_equivalent(a, b) && isless(ai, bi))
+bound_equivalent(a, b) = !bound_isless(a, b) && !bound_isless(b, a)
 function overlaps(a::VersionRange, b::VersionRange)
     smaller, bigger = a < b ? (a, b) : (b, a)
     # Ranges order by lower bound then upper bound, so the "smaller" range overlaps the "bigger" one if:
     # their lower bounds are the same, or the upper bound of the smaller one reaches into the bigger one
-    return (lower_bound_tuple(smaller) == lower_bound_tuple(bigger) ||
-            upper_bound_tuple(smaller) >= lower_bound_tuple(bigger))
+    return (bound_equivalent(lower_bound_tuple(smaller), lower_bound_tuple(bigger)) ||
+            !bound_isless(upper_bound_tuple(smaller), lower_bound_tuple(bigger)))
 end
 function merge_ranges(ranges)
     ranges = issorted(ranges) ? ranges : sort(ranges)
@@ -135,8 +139,8 @@ function merge_ranges(ranges)
     for rng in ranges
         base === nothing && (base = rng; continue) # first iteration
         # Incrementally widen `base` to "gobble up" any subsequent ranges it overlaps or _touches_ (if at least one endpoint is inclusive)
-        if overlaps(base, rng) || (base.ub == rng.lb && (base.ubinclusive || rng.lbinclusive))
-            ubtuple = max(upper_bound_tuple(base), upper_bound_tuple(rng))
+        if overlaps(base, rng) || (version_equivalent(base.ub, rng.lb) && (base.ubinclusive || rng.lbinclusive))
+            ubtuple = bound_isless(upper_bound_tuple(base), upper_bound_tuple(rng)) ? upper_bound_tuple(rng) : upper_bound_tuple(base)
             base = VersionRange(base.lb, ubtuple[1], base.lbinclusive, ubtuple[2])
         else
             push!(new_ranges, base)

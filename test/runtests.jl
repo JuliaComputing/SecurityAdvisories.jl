@@ -43,6 +43,13 @@ end
     @test merge_ranges(VR{VersionNumber}.(["1 < 2", "2 <= 4", "3 < 4"])) == [VR{VersionNumber}("1 <= 4")]
     @test merge_ranges(VR{VersionNumber}.(["1 < 2", "2 <= 4", "3 < 4", "3 < 5"])) == [VR{VersionNumber}("1 < 5")]
     @test merge_ranges(VR{VersionNumber}.(["1 < 2", "> 2, <= 5", "3 < 5"])) == [VR{VersionNumber}("1 < 2"), VR{VersionNumber}(">2, <=5")]
+
+    # Endpoints the project's scheme orders equally (1.0 and 1.0.0) touch and merge
+    Base.ScopedValues.with(SecurityAdvisories.VERSION_PROJECT => "zlib") do
+        @test SecurityAdvisories.overlaps(VR(">= 0.5, <= 1.0"), VR(">= 1.0.0, < 2"))
+        @test merge_ranges(VR.([">= 0.5, <= 1.0", ">= 1.0.0, < 2"])) == [VR(">= 0.5, < 2")]
+        @test merge_ranges(VR.([">= 0.5, <= 1.0", ">= 0.6, < 1.0.0"])) == [VR(">= 0.5, <= 1.0")]
+    end
 end
 
 # Matching; this should ideally be more isolated from GeneralMetadata.jl's package components data
