@@ -267,8 +267,12 @@ const TRUST_HEURISTIC = Ref(false)
 trusted_upstream(src) = haskey(src, "upstream") && (TRUST_HEURISTIC[] || get(src["upstream"], "provenance", "") != "heuristic")
 
 const PACKAGE_COMPONENTS = Ref{Dict{String,Any}}()
+const PACKAGE_COMPONENTS_TRUST = Ref{Bool}()
 function package_components()
-    isassigned(PACKAGE_COMPONENTS) && return PACKAGE_COMPONENTS[]
+    isassigned(PACKAGE_COMPONENTS) && PACKAGE_COMPONENTS_TRUST[] == TRUST_HEURISTIC[] && return PACKAGE_COMPONENTS[]
+    # Derived caches follow package_components
+    PACKAGE_COMPONENTS_TRUST[] = TRUST_HEURISTIC[]
+    foreach(r -> isassigned(r) && Base.setfield!(r, :x, typeof(r[])()), (PACKAGES_WITH_PROJECT, UPSTREAM_PROJECTS))
     pkg_version_upstream = Dict{String, Any}()
     for (pkg, pkgmeta) in GeneralMetadata.metadata()
         pkg_version_upstream[pkg] = OrderedDict{String, Any}()
