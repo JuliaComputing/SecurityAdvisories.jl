@@ -404,9 +404,9 @@ function _convert_versions(pkg_project_map, vulnerable_range, project)
             v isa AbstractVector ? VersionString.(v) :
             error("unsupported values of type $(typeof(v)) in pkg_project_map")
         for (k,v) in pkg_project_map], by=first)
-    # An upstream version that the project's versioning scheme can't order against the range's bounds is unknown
-    bounds = filter(b -> b.str ∉ ("", "∞"), [vulnerable_range.lb, vulnerable_range.ub])
-    unorderable(v) = !isnothing(project) && any(b -> isnothing(Repology.vercmp(project, v.str, b.str)), bounds)
+    # An upstream version whose form the project's versioning scheme can't order (like 1.2-3 without a known
+    # meaning for the hyphen) is unknown. Ambiguous range bounds (like CVE-style 25.0.0+rust) fall back to VersionString.
+    unorderable(v) = !isnothing(project) && isnothing(Repology.vercmp(project, v.str, v.str))
     versionmap = [k => (v isa AbstractVector && any(unorderable, v) ? missing : v) for (k, v) in versionmap]
 
     versions = VersionRange{VersionNumber}[]
