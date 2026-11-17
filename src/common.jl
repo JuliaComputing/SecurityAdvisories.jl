@@ -1,3 +1,5 @@
+import Repology
+using Base.ScopedValues: with
 using JSON3: JSON3
 using TOML: TOML
 using Pkg: Pkg, Registry
@@ -259,6 +261,11 @@ function readme_for_pkg(name, uuid, version; reg=get_registry())
 end
 
 # The two primary datastructures for connecting packages with upstream projects
+
+"Whether upstream identifications GeneralMetadata marks with `provenance = \"heuristic\"` are used; otherwise they count as unknown"
+const TRUST_HEURISTIC = Ref(false)
+trusted_upstream(src) = haskey(src, "upstream") && (TRUST_HEURISTIC[] || get(src["upstream"], "provenance", "") != "heuristic")
+
 const PACKAGE_COMPONENTS = Ref{Dict{String,Any}}()
 function package_components()
     isassigned(PACKAGE_COMPONENTS) && return PACKAGE_COMPONENTS[]
@@ -274,13 +281,13 @@ function package_components()
                 pkg_version_upstream[pkg][v] = DefaultDict(missing)
             else
                 unknowns = if Set(vmeta["artifact_urls"]) == Set(Iterators.flatten(get.(vmeta["artifact_metadata"], "artifact_urls", [[]]))) &&
-                    all(x->haskey(x, "sources"), vmeta["artifact_metadata"]) && all(x->haskey(x, "upstream"), Iterators.flatten(get.(vmeta["artifact_metadata"], "sources", [[]])))
+                    all(x->haskey(x, "sources"), vmeta["artifact_metadata"]) && all(trusted_upstream, Iterators.flatten(get.(vmeta["artifact_metadata"], "sources", [[]])))
                     nothing
                 else
                     missing
                 end
-                upstream_proj_info = filter(!isempty, [get(src, "upstream", Dict()) for src in
-                    Iterators.flatten(get(am, "sources", []) for am in get(vmeta, "artifact_metadata", []))])
+                upstream_proj_info = [src["upstream"] for src in
+                    Iterators.flatten(get(am, "sources", []) for am in get(vmeta, "artifact_metadata", [])) if trusted_upstream(src)]
                 d = DefaultDict(unknowns)
                 for proj_name in unique(v["project"] for v in upstream_proj_info)
                     d[proj_name] = unique(get(pi, "version", "*") for pi in upstream_proj_info if get(pi, "project", "") == proj_name)
@@ -295,7 +302,7 @@ end
 const UPSTREAM_PROJECTS = Ref{Dict{String,Any}}()
 function upstream_projects()
     isassigned(UPSTREAM_PROJECTS) && return UPSTREAM_PROJECTS[]
-    info = TOML.parse(GitHub.fetch_file("mbauman","Repology.jl","data/cpes.toml";))
+    info = Repology.cpe_data()
     projects = Set(chopprefix(x, "repology.org/project/") for x in
         Iterators.flatmap(keys, Iterators.flatmap(values, values(package_components())))
         if startswith(x, "repology.org/project/"))
@@ -383,7 +390,12 @@ versions around it.
   - If the "*" is not followed by any newer versions with known values, it matches all versions (including those less than a previous version, if any)
   - Otherwise, the "*" is bounded by the known versions around it
 """
-function convert_versions(pkg_project_map, vulnerable_range)
+function convert_versions(pkg_project_map, vulnerable_range; project=nothing)
+    with(VERSION_PROJECT => project) do
+        _convert_versions(pkg_project_map, vulnerable_range, project)
+    end
+end
+function _convert_versions(pkg_project_map, vulnerable_range, project)
     # Standardize to VersionNumber => Union{Nothing,Missing,Vector{VersionString}} pairs:
     versionmap = sort([VersionNumber(k) =>
             isnothing(v) || (v isa AbstractVector && isempty(v)) ? nothing :
@@ -392,6 +404,10 @@ function convert_versions(pkg_project_map, vulnerable_range)
             v isa AbstractVector ? VersionString.(v) :
             error("unsupported values of type $(typeof(v)) in pkg_project_map")
         for (k,v) in pkg_project_map], by=first)
+    # An upstream version that the project's versioning scheme can't order against the range's bounds is unknown
+    bounds = filter(b -> b.str ∉ ("", "∞"), [vulnerable_range.lb, vulnerable_range.ub])
+    unorderable(v) = !isnothing(project) && any(b -> isnothing(Repology.vercmp(project, v.str, b.str)), bounds)
+    versionmap = [k => (v isa AbstractVector && any(unorderable, v) ? missing : v) for (k, v) in versionmap]
 
     versions = VersionRange{VersionNumber}[]
     # Now walk through the Julia package's versions and push all applicable (potentially disjoint) ranges of versions
@@ -483,7 +499,8 @@ function affected_julia_packages(description, vendorproductversions)
                 r = tryparse(VersionRange, version)
                 for pkg in matched_pkgs
                     pkgs[pkg]["$vendor:$product"][version] = isnothing(r) ?
-                        [VersionRange{VersionNumber}("*")] : convert_versions(package_project_version_map(pkg, matched_project), r)
+                        [VersionRange{VersionNumber}("*")] : convert_versions(package_project_version_map(pkg, matched_project), r;
+                        project=chopprefix(matched_project, "repology.org/project/"))
                 end
                 isnothing(advisory_type) || @assert(advisory_type == "upstream", "advisory matches the upstream component $matched_project ($vendor:$product), but it also directly lists Julia packages")
                 advisory_type = "upstream"

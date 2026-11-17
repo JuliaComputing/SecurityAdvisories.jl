@@ -1,5 +1,11 @@
 module VersionStrings
 
+import Repology
+using Base.ScopedValues: ScopedValue
+
+"The Repology project whose versioning scheme `VersionString` comparisons follow, if any; see `Repology.vercmp`"
+const VERSION_PROJECT = ScopedValue{Union{Nothing,String}}(nothing)
+
 """
     VersionString
 
@@ -48,6 +54,12 @@ function Base.isless(aver::VersionString, bver::VersionString)
     b == "∞" && return true
     b == "" && return false # These would otherwise allow empty -prereleases per below
     a == "" && return true
+    # Follow the project's own versioning scheme where Repology can decide
+    proj = VERSION_PROJECT[]
+    if !isnothing(proj)
+        c = Repology.vercmp(proj, a, b)
+        isnothing(c) || return c < 0
+    end
     ai = bi = 1
     while true
         # Skip to the first difference _or_ the first digit

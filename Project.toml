@@ -20,8 +20,8 @@ Tar = "a4e569a6-e804-4fa4-b0f3-eef7a1d5b13e"
 TimeZones = "f269a46b-ccf7-5d73-abea-4c690281aa53"
 
 [sources]
-GeneralMetadata = {rev = "main", url = "https://github.com/JuliaRegistries/GeneralMetadata.jl"}
-Repology = {rev = "main", url = "https://github.com/mbauman/Repology.jl"}
+GeneralMetadata = {rev = "main", url = "https://github.com/JuliaComputing/GeneralMetadata.jl"}
+Repology = {rev = "main", url = "https://github.com/JuliaComputing/Repology.jl"}
 
 [compat]
 CodecZlib = "0.7.8"
