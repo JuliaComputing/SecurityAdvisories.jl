@@ -130,9 +130,10 @@ bound_equivalent(a, b) = !bound_isless(a, b) && !bound_isless(b, a)
 function overlaps(a::VersionRange, b::VersionRange)
     smaller, bigger = a < b ? (a, b) : (b, a)
     # Ranges order by lower bound then upper bound, so the "smaller" range overlaps the "bigger" one if:
-    # their lower bounds are the same, or the upper bound of the smaller one reaches into the bigger one
+    # their lower bounds are the same, or the upper bound of the smaller one reaches past the bigger one's lower bound
+    # (merely touching, like `< 1` and `>= 1`, is not overlapping)
     return (bound_equivalent(lower_bound_tuple(smaller), lower_bound_tuple(bigger)) ||
-            !bound_isless(upper_bound_tuple(smaller), lower_bound_tuple(bigger)))
+            bound_isless(lower_bound_tuple(bigger), upper_bound_tuple(smaller)))
 end
 function merge_ranges(ranges)
     ranges = issorted(ranges) ? ranges : sort(ranges)
