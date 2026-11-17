@@ -272,7 +272,7 @@ function package_components()
     isassigned(PACKAGE_COMPONENTS) && PACKAGE_COMPONENTS_TRUST[] == TRUST_HEURISTIC[] && return PACKAGE_COMPONENTS[]
     # Derived caches follow package_components
     PACKAGE_COMPONENTS_TRUST[] = TRUST_HEURISTIC[]
-    foreach(r -> isassigned(r) && Base.setfield!(r, :x, typeof(r[])()), (PACKAGES_WITH_PROJECT, UPSTREAM_PROJECTS))
+    foreach(r -> isassigned(r) && empty!(r[]), (PACKAGES_WITH_PROJECT, UPSTREAM_PROJECTS, UPSTREAM_PROJECTS_BY_VENDOR_PRODUCT))
     pkg_version_upstream = Dict{String, Any}()
     for (pkg, pkgmeta) in GeneralMetadata.metadata()
         pkg_version_upstream[pkg] = OrderedDict{String, Any}()
@@ -305,7 +305,8 @@ end
 
 const UPSTREAM_PROJECTS = Ref{Dict{String,Any}}()
 function upstream_projects()
-    isassigned(UPSTREAM_PROJECTS) && return UPSTREAM_PROJECTS[]
+    package_components() # resets the derived caches if TRUST_HEURISTIC changed
+    isassigned(UPSTREAM_PROJECTS) && !isempty(UPSTREAM_PROJECTS[]) && return UPSTREAM_PROJECTS[]
     info = Repology.cpe_data()
     projects = Set(chopprefix(x, "repology.org/project/") for x in
         Iterators.flatmap(keys, Iterators.flatmap(values, values(package_components())))
@@ -317,7 +318,8 @@ end
 # A computed dictionary that maps a (vendor, product) tuple to known upstream project names
 const UPSTREAM_PROJECTS_BY_VENDOR_PRODUCT = Ref{Dict{Tuple{String,String}, Vector{String}}}()
 function upstream_projects_by_vendor_product(vendor, product)
-    if !isassigned(UPSTREAM_PROJECTS_BY_VENDOR_PRODUCT)
+    package_components()
+    if !isassigned(UPSTREAM_PROJECTS_BY_VENDOR_PRODUCT) || isempty(UPSTREAM_PROJECTS_BY_VENDOR_PRODUCT[])
         d = Dict{Tuple{String,String}, Vector{String}}()
         for (project, cpes) in upstream_projects()
             for cpe in cpes
@@ -339,7 +341,8 @@ end
 # Maps each upstream project name to the packages that provide it
 const PACKAGES_WITH_PROJECT = Ref{Dict{String, Vector{String}}}()
 function packages_with_project(proj)
-    if !isassigned(PACKAGES_WITH_PROJECT)
+    package_components()
+    if !isassigned(PACKAGES_WITH_PROJECT) || isempty(PACKAGES_WITH_PROJECT[])
         d = Dict{String, Vector{String}}()
         for (pkgname, versioninfo) in package_components(), verinfo in values(versioninfo)
             for project in keys(verinfo)
