@@ -407,7 +407,8 @@ function _convert_versions(pkg_project_map, vulnerable_range, project)
     # An upstream version whose form the project's versioning scheme can't order (like 1.2-3 without a known
     # meaning for the hyphen) is unknown. Ambiguous range bounds (like CVE-style 25.0.0+rust) fall back to VersionString.
     unorderable(v) = !isnothing(project) && isnothing(Repology.vercmp(project, v.str, v.str))
-    versionmap = [k => (v isa AbstractVector && any(unorderable, v) ? missing : v) for (k, v) in versionmap]
+    versionmap = [k => (v isa AbstractVector && any(unorderable, v) ?
+        (all(unorderable, v) ? missing : filter(!unorderable, v)) : v) for (k, v) in versionmap]
 
     versions = VersionRange{VersionNumber}[]
     # Now walk through the Julia package's versions and push all applicable (potentially disjoint) ranges of versions
