@@ -268,8 +268,11 @@ end
 
 # The two primary datastructures for connecting packages with upstream projects
 
-"Whether upstream identifications GeneralMetadata marks with `provenance = \"heuristic\"` are used; otherwise they count as unknown"
-const TRUST_HEURISTIC = Ref(false)
+"""
+Whether upstream identifications GeneralMetadata marks with `provenance = \"heuristic\"` are used; otherwise they count as unknown.
+Untrusted, they would drop many real matches: an old release with an unknown version is skipped rather than assumed vulnerable.
+"""
+const TRUST_HEURISTIC = Ref(true)
 trusted_upstream(src) = haskey(src, "upstream") && (TRUST_HEURISTIC[] || get(src["upstream"], "provenance", "") != "heuristic")
 
 const PACKAGE_COMPONENTS = Ref{Dict{String,Any}}()
