@@ -269,11 +269,11 @@ end
 # The two primary datastructures for connecting packages with upstream projects
 
 const PACKAGE_COMPONENTS = Ref{Dict{String,Any}}()
-# (package, project) => the package versions whose upstream version Repology only guessed (`provenance = "heuristic"`)
-const HEURISTIC_COMPONENTS = Ref{Dict{Tuple{String,String},Vector{String}}}()
+# (package, project) => package version => the upstream versions Repology only guessed (`provenance = "heuristic"`)
+const HEURISTIC_COMPONENTS = Ref{Dict{Tuple{String,String},Dict{String,Set{String}}}}()
 function package_components()
     isassigned(PACKAGE_COMPONENTS) && return PACKAGE_COMPONENTS[]
-    heuristics = Dict{Tuple{String,String},Vector{String}}()
+    heuristics = Dict{Tuple{String,String},Dict{String,Set{String}}}()
     pkg_version_upstream = Dict{String, Any}()
     for (pkg, pkgmeta) in GeneralMetadata.metadata()
         pkg_version_upstream[pkg] = OrderedDict{String, Any}()
@@ -298,9 +298,12 @@ function package_components()
                     d[proj_name] = unique(get(pi, "version", "*") for pi in upstream_proj_info if get(pi, "project", "") == proj_name)
                 end
                 pkg_version_upstream[pkg][v] = d
-                for pi in upstream_proj_info
-                    get(pi, "provenance", "") == "heuristic" && haskey(pi, "version") &&
-                        union!(get!(Vector{String}, heuristics, (pkg, pi["project"])), (v,))
+                for proj_name in keys(d)
+                    infos = filter(pi -> get(pi, "project", "") == proj_name && haskey(pi, "version"), upstream_proj_info)
+                    is_guess(pi) = get(pi, "provenance", "") == "heuristic"
+                    # A version also identified by a non-heuristic source isn't a guess
+                    guessed = setdiff(Set(pi["version"] for pi in infos if is_guess(pi)), (pi["version"] for pi in infos if !is_guess(pi)))
+                    isempty(guessed) || (get!(Dict{String,Set{String}}, heuristics, (pkg, proj_name))[v] = guessed)
                 end
             end
         end
@@ -379,8 +382,8 @@ function vendor_products_for_package(pkg)
     return unique(split(cpe, ":", limit=2) for proj in upstream_projects_for_package(pkg) for cpe in get(SecurityAdvisories.upstream_projects(), proj, String[]))
 end
 
-"The versions of `pkg` whose `proj` version is a heuristic guess from the source URL"
-heuristic_versions(pkg, proj) = (package_components(); get(HEURISTIC_COMPONENTS[], (pkg, proj), String[]))
+"Map each version of `pkg` to its `proj` versions that are only heuristic guesses from source URLs"
+heuristic_versions(pkg, proj) = (package_components(); get(HEURISTIC_COMPONENTS[], (pkg, proj), Dict{String,Set{String}}()))
 
 function package_project_version_map(pkg, proj)
     d = OrderedDict{String,Any}()

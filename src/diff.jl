@@ -563,9 +563,11 @@ function print_search_pr_outputs(io, spec; dir=pwd(), haystack=nothing)
 
                 println(io, "    | ", link_pkg(pkg), " version | ", join(link_proj.(vulnerable_projs) .* " version", " | "), " |")
                 println(io, "    |-|", join(fill("-", length(vulnerable_projs)), "|"), "|")
-                heuristics = Dict(p => Set(heuristic_versions(pkg, p)) for p in vulnerable_projs)
+                heuristics = Dict(p => heuristic_versions(pkg, p) for p in vulnerable_projs)
+                mark(v, p, ups) = haskey(heuristics[p], v) ?
+                    join((x in heuristics[p][v] ? "$x ⚠" : x for x in ups), ", ") : ups
                 for (v, ups) in pkg_version_upstream[pkg]
-                    println(io, "    | $v | ", join((v in heuristics[p] ? "$(ups[p]) ⚠" : ups[p] for p in vulnerable_projs), " | "), " | ")
+                    println(io, "    | $v | ", join((mark(v, p, ups[p]) for p in vulnerable_projs), " | "), " | ")
                 end
                 println(io)
                 println(io, "    </details>\n")
