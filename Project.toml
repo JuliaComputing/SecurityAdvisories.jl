@@ -21,7 +21,7 @@ TimeZones = "f269a46b-ccf7-5d73-abea-4c690281aa53"
 
 [sources]
 GeneralMetadata = {rev = "main", url = "https://github.com/JuliaRegistries/GeneralMetadata.jl"}
-Repology = {rev = "main", url = "https://github.com/mbauman/Repology.jl"}
+Repology = {rev = "main", url = "https://github.com/JuliaPackaging/Repology.jl"}
 
 [compat]
 CodecZlib = "0.7.8"
