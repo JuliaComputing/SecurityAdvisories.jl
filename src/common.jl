@@ -268,20 +268,12 @@ end
 
 # The two primary datastructures for connecting packages with upstream projects
 
-"""
-Whether upstream identifications GeneralMetadata marks with `provenance = \"heuristic\"` are used; otherwise they count as unknown.
-Untrusted, they would drop many real matches: an old release with an unknown version is skipped rather than assumed vulnerable.
-"""
-const TRUST_HEURISTIC = Ref(true)
-trusted_upstream(src) = haskey(src, "upstream") && (TRUST_HEURISTIC[] || get(src["upstream"], "provenance", "") != "heuristic")
-
 const PACKAGE_COMPONENTS = Ref{Dict{String,Any}}()
-const PACKAGE_COMPONENTS_TRUST = Ref{Bool}()
+# (package, project) => the package versions whose upstream version Repology only guessed (`provenance = "heuristic"`)
+const HEURISTIC_COMPONENTS = Ref{Dict{Tuple{String,String},Vector{String}}}()
 function package_components()
-    isassigned(PACKAGE_COMPONENTS) && PACKAGE_COMPONENTS_TRUST[] == TRUST_HEURISTIC[] && return PACKAGE_COMPONENTS[]
-    # Derived caches follow package_components
-    PACKAGE_COMPONENTS_TRUST[] = TRUST_HEURISTIC[]
-    foreach(r -> isassigned(r) && empty!(r[]), (PACKAGES_WITH_PROJECT, UPSTREAM_PROJECTS, UPSTREAM_PROJECTS_BY_VENDOR_PRODUCT))
+    isassigned(PACKAGE_COMPONENTS) && return PACKAGE_COMPONENTS[]
+    heuristics = Dict{Tuple{String,String},Vector{String}}()
     pkg_version_upstream = Dict{String, Any}()
     for (pkg, pkgmeta) in GeneralMetadata.metadata()
         pkg_version_upstream[pkg] = OrderedDict{String, Any}()
@@ -294,28 +286,32 @@ function package_components()
                 pkg_version_upstream[pkg][v] = DefaultDict(missing)
             else
                 unknowns = if Set(vmeta["artifact_urls"]) == Set(Iterators.flatten(get.(vmeta["artifact_metadata"], "artifact_urls", [[]]))) &&
-                    all(x->haskey(x, "sources"), vmeta["artifact_metadata"]) && all(trusted_upstream, Iterators.flatten(get.(vmeta["artifact_metadata"], "sources", [[]])))
+                    all(x->haskey(x, "sources"), vmeta["artifact_metadata"]) && all(x->haskey(x, "upstream"), Iterators.flatten(get.(vmeta["artifact_metadata"], "sources", [[]])))
                     nothing
                 else
                     missing
                 end
-                upstream_proj_info = [src["upstream"] for src in
-                    Iterators.flatten(get(am, "sources", []) for am in get(vmeta, "artifact_metadata", [])) if trusted_upstream(src)]
+                upstream_proj_info = filter(!isempty, [get(src, "upstream", Dict()) for src in
+                    Iterators.flatten(get(am, "sources", []) for am in get(vmeta, "artifact_metadata", []))])
                 d = DefaultDict(unknowns)
                 for proj_name in unique(v["project"] for v in upstream_proj_info)
                     d[proj_name] = unique(get(pi, "version", "*") for pi in upstream_proj_info if get(pi, "project", "") == proj_name)
                 end
                 pkg_version_upstream[pkg][v] = d
+                for pi in upstream_proj_info
+                    get(pi, "provenance", "") == "heuristic" && haskey(pi, "version") &&
+                        union!(get!(Vector{String}, heuristics, (pkg, pi["project"])), (v,))
+                end
             end
         end
     end
+    HEURISTIC_COMPONENTS[] = heuristics
     return PACKAGE_COMPONENTS[] = pkg_version_upstream
 end
 
 const UPSTREAM_PROJECTS = Ref{Dict{String,Any}}()
 function upstream_projects()
-    package_components() # resets the derived caches if TRUST_HEURISTIC changed
-    isassigned(UPSTREAM_PROJECTS) && !isempty(UPSTREAM_PROJECTS[]) && return UPSTREAM_PROJECTS[]
+    isassigned(UPSTREAM_PROJECTS) && return UPSTREAM_PROJECTS[]
     info = Repology.cpe_data()
     projects = Set(chopprefix(x, "repology.org/project/") for x in
         Iterators.flatmap(keys, Iterators.flatmap(values, values(package_components())))
@@ -327,8 +323,7 @@ end
 # A computed dictionary that maps a (vendor, product) tuple to known upstream project names
 const UPSTREAM_PROJECTS_BY_VENDOR_PRODUCT = Ref{Dict{Tuple{String,String}, Vector{String}}}()
 function upstream_projects_by_vendor_product(vendor, product)
-    package_components()
-    if !isassigned(UPSTREAM_PROJECTS_BY_VENDOR_PRODUCT) || isempty(UPSTREAM_PROJECTS_BY_VENDOR_PRODUCT[])
+    if !isassigned(UPSTREAM_PROJECTS_BY_VENDOR_PRODUCT)
         d = Dict{Tuple{String,String}, Vector{String}}()
         for (project, cpes) in upstream_projects()
             for cpe in cpes
@@ -350,8 +345,7 @@ end
 # Maps each upstream project name to the packages that provide it
 const PACKAGES_WITH_PROJECT = Ref{Dict{String, Vector{String}}}()
 function packages_with_project(proj)
-    package_components()
-    if !isassigned(PACKAGES_WITH_PROJECT) || isempty(PACKAGES_WITH_PROJECT[])
+    if !isassigned(PACKAGES_WITH_PROJECT)
         d = Dict{String, Vector{String}}()
         for (pkgname, versioninfo) in package_components(), verinfo in values(versioninfo)
             for project in keys(verinfo)
@@ -384,6 +378,9 @@ end
 function vendor_products_for_package(pkg)
     return unique(split(cpe, ":", limit=2) for proj in upstream_projects_for_package(pkg) for cpe in get(SecurityAdvisories.upstream_projects(), proj, String[]))
 end
+
+"The versions of `pkg` whose `proj` version is a heuristic guess from the source URL"
+heuristic_versions(pkg, proj) = (package_components(); get(HEURISTIC_COMPONENTS[], (pkg, proj), String[]))
 
 function package_project_version_map(pkg, proj)
     d = OrderedDict{String,Any}()

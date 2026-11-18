@@ -563,8 +563,9 @@ function print_search_pr_outputs(io, spec; dir=pwd(), haystack=nothing)
 
                 println(io, "    | ", link_pkg(pkg), " version | ", join(link_proj.(vulnerable_projs) .* " version", " | "), " |")
                 println(io, "    |-|", join(fill("-", length(vulnerable_projs)), "|"), "|")
+                heuristics = Dict(p => Set(heuristic_versions(pkg, p)) for p in vulnerable_projs)
                 for (v, ups) in pkg_version_upstream[pkg]
-                    println(io, "    | $v | ", join((ups[p] for p in vulnerable_projs), " | "), " | ")
+                    println(io, "    | $v | ", join((v in heuristics[p] ? "$(ups[p]) ⚠" : ups[p] for p in vulnerable_projs), " | "), " | ")
                 end
                 println(io)
                 println(io, "    </details>\n")
@@ -572,6 +573,11 @@ function print_search_pr_outputs(io, spec; dir=pwd(), haystack=nothing)
                 last_version, last_version_info = last(pkg_version_upstream[pkg])
                 if any(x->ismissing(x) || x=="*", values(last_version_info))
                     println(io, "    * **⚠ The latest version (v$last_version) has incomplete or missing metadata**")
+                end
+                for proj in intersect(pkg_projects, vulnerable_projs)
+                    n = length(heuristics[proj])
+                    n > 0 && println(io, "    * **⚠ The ", link_proj(proj), " version", n == 1 ? " of 1 release was" : "s of $n releases were",
+                        " guessed heuristically from source URLs** (marked ⚠ above); check them before trusting these ranges")
                 end
                 has_early_missings = false
                 has_intervening_missings = false
