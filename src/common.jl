@@ -28,8 +28,8 @@ struct VersionRange{V<:Union{VersionNumber, VersionString}}
     lbinclusive::Bool
     ubinclusive::Bool
 end
-VersionRange(x::AbstractString) = VersionRange{VersionString}(x)
-VersionRange{T}(x::AbstractString) where {T<:Union{VersionNumber, VersionString}} = something(tryparse(VersionRange{T}, x))
+VersionRange(x::AbstractString; project=nothing) = VersionRange{VersionString}(x; project)
+VersionRange{T}(x::AbstractString; project=nothing) where {T<:Union{VersionNumber, VersionString}} = something(tryparse(VersionRange{T}, x; project))
 function Base.in(x::T, r::VersionRange{T}) where {T<:Union{VersionNumber, VersionString}}
     return (r.lbinclusive ? x >= r.lb : x > r.lb) &&
            (r.ubinclusive ? x <= r.ub : x < r.ub)
@@ -45,8 +45,20 @@ Base.hash(a::VersionRange, h::UInt) = hash((a.lb, a.lbinclusive, a.ub, a.ubinclu
 Base.isless(a::VersionRange, b::VersionRange) =
     bound_isless(lower_bound_tuple(a), lower_bound_tuple(b)) ||
     (bound_equivalent(lower_bound_tuple(a), lower_bound_tuple(b)) && bound_isless(upper_bound_tuple(a), upper_bound_tuple(b)))
-Base.tryparse(::Type{VersionRange}, x::AbstractString) = tryparse(VersionRange{VersionString}, x)
-function Base.tryparse(::Type{VersionRange{V}}, arg::AbstractString) where {V}
+Base.tryparse(::Type{VersionRange}, x::AbstractString; project=nothing) = tryparse(VersionRange{VersionString}, x; project)
+# The Repology project whose versioning scheme a `VersionString` range's bounds follow, if any
+version_project(r::VersionRange{VersionString}) = something(r.lb.project, r.ub.project, Some(nothing))
+parse_bound(::Type{VersionString}, str, project) = VersionString(str, project)
+function parse_bound(::Type{V}, str, project) where {V}
+    isnothing(project) || throw(ArgumentError("only VersionString bounds follow a project's versioning scheme"))
+    return tryparse(V, str)
+end
+"""
+    tryparse(VersionRange{V}, str; project=nothing)
+
+Parse a GitHub- or EUVD-style range. `VersionString` bounds follow the Repology `project`'s versioning scheme, if given.
+"""
+function Base.tryparse(::Type{VersionRange{V}}, arg::AbstractString; project=nothing) where {V}
     # This supports parsing both GitHub and EUVD-like range syntaxes.
     # GHSA range format is described at:
     #   https://docs.github.com/en/graphql/reference/objects#securityvulnerability
@@ -65,21 +77,21 @@ function Base.tryparse(::Type{VersionRange{V}}, arg::AbstractString) where {V}
         return VersionRange{V}(typemin(V), typemax(V), true, true)
     elseif startswith(str, "=")
         # An exact version number
-        v = tryparse(V, strip(chopprefix(str, "=")))
+        v = parse_bound(V, strip(chopprefix(str, "=")), project)
         isnothing(v) && return nothing
         return VersionRange{V}(v, v, true, true)
     elseif startswith(str, r"[<≤]")
         # An upper bound only, with an implicit minimum lower bound
-        ub = tryparse(V, strip(chopprefix(str, r"(?:<=|≤|<)")))
+        ub = parse_bound(V, strip(chopprefix(str, r"(?:<=|≤|<)")), project)
         isnothing(ub) && return nothing
         return VersionRange{V}(typemin(V), ub, true, startswith(str, r"(?:<=|≤)"))
     elseif startswith(str, r"[>≥]")
         # A lower bound that may have a comma-separated upper bound that follows
         parts = split(str, r",\s*(?=[<≤])", limit=2, keepempty=false)
         lower, upper = parts[1], get(parts, 2, string("<=",typemax(V)))
-        lb = tryparse(V, strip(chopprefix(lower, r"(?:>=|≥|>)")))
+        lb = parse_bound(V, strip(chopprefix(lower, r"(?:>=|≥|>)")), project)
         isnothing(lb) && return nothing
-        ub = tryparse(V, strip(chopprefix(upper, r"(?:<=|≤|<)")))
+        ub = parse_bound(V, strip(chopprefix(upper, r"(?:<=|≤|<)")), project)
         isnothing(ub) && return nothing
         return VersionRange{V}(lb, ub, startswith(lower, r"(?:>=|≥)"), startswith(upper, r"(?:<=|≤)"))
     elseif count(in(('<','≤')), str) == 1
@@ -89,9 +101,9 @@ function Base.tryparse(::Type{VersionRange{V}}, arg::AbstractString) where {V}
         length(parts) == 2 || return nothing
         lower, upper = parts
         contains(lower, ',') && return nothing # only the one comma before the operator is allowed
-        lb = tryparse(V, strip(lower))
+        lb = parse_bound(V, strip(lower), project)
         isnothing(lb) && return nothing
-        ub = tryparse(V, strip(chopprefix(upper, r"(?:<=|≤|<)")))
+        ub = parse_bound(V, strip(chopprefix(upper, r"(?:<=|≤|<)")), project)
         isnothing(ub) && return nothing
         return VersionRange{V}(lb, ub, true, startswith(upper, r"(?:<=|≤)"))
     end
@@ -398,7 +410,8 @@ end
     convert_versions(pkg_project_map, vulnerable_range)
 
 Convert the vulnerable range from an upstream project's version numbers to the Julia packages,
-using the pkg_project_map.
+using the pkg_project_map. Upstream versions are ordered by the versioning scheme of the
+project the range's bounds were parsed with (see [`VersionString`](@ref)), if any.
 
 In practice, this uses the GeneralMetadata.jl's `package_components.toml` table and a vulnerable range from an upstream advisory.
 
@@ -407,18 +420,15 @@ versions around it.
   - If the "*" is not followed by any newer versions with known values, it matches all versions (including those less than a previous version, if any)
   - Otherwise, the "*" is bounded by the known versions around it
 """
-function convert_versions(pkg_project_map, vulnerable_range; project=nothing)
-    with(VERSION_PROJECT => project) do
-        _convert_versions(pkg_project_map, vulnerable_range, project)
-    end
-end
-function _convert_versions(pkg_project_map, vulnerable_range, project)
+function convert_versions(pkg_project_map, vulnerable_range)
+    # Upstream versions are compared with the versioning scheme of the range's project
+    project = version_project(vulnerable_range)
     # Standardize to VersionNumber => Union{Nothing,Missing,Vector{VersionString}} pairs:
     versionmap = sort([VersionNumber(k) =>
             isnothing(v) || (v isa AbstractVector && isempty(v)) ? nothing :
             ismissing(v) || v == "*" || (v isa AbstractVector && "*" in v) ? missing :
-            v isa AbstractString ? [VersionString(v)] :
-            v isa AbstractVector ? VersionString.(v) :
+            v isa AbstractString ? [VersionString(v, project)] :
+            v isa AbstractVector ? VersionString.(v, project) :
             error("unsupported values of type $(typeof(v)) in pkg_project_map")
         for (k,v) in pkg_project_map], by=first)
     # An upstream version whose form the project's versioning scheme can't order (like 1.2-3 without a known
@@ -514,11 +524,10 @@ function affected_julia_packages(description, vendorproductversions)
             found_match = true
             for matched_project in upstream_projects
                 matched_pkgs = packages_with_project(matched_project)
-                r = tryparse(VersionRange, version)
+                r = tryparse(VersionRange, version; project=chopprefix(matched_project, "repology.org/project/"))
                 for pkg in matched_pkgs
                     pkgs[pkg]["$vendor:$product"][version] = isnothing(r) ?
-                        [VersionRange{VersionNumber}("*")] : convert_versions(package_project_version_map(pkg, matched_project), r;
-                        project=chopprefix(matched_project, "repology.org/project/"))
+                        [VersionRange{VersionNumber}("*")] : convert_versions(package_project_version_map(pkg, matched_project), r)
                 end
                 isnothing(advisory_type) || @assert(advisory_type == "upstream", "advisory matches the upstream component $matched_project ($vendor:$product), but it also directly lists Julia packages")
                 advisory_type = "upstream"

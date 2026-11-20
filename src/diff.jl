@@ -493,9 +493,10 @@ function print_search_pr_outputs(io, spec; dir=pwd(), haystack=nothing)
 
     # Identify unbounded JLLs whose upstream fix is known but not yet built; these
     # are actionable via an Yggdrasil recipe update (requested in a workflow step)
-    recipe_updates = Dict{String, VersionString}()
+    recipe_updates = Dict{Tuple{String, Union{Nothing, String}}, VersionString}()
     for adv in results, (name, version) in recipe_update_candidates(adv)
-        recipe_updates[name] = max(get(recipe_updates, name, version), version)
+        key = (name, version.project)
+        recipe_updates[key] = max(get(recipe_updates, key, version), version)
     end
 
     verb = n_modified > 0 && n_created == 0 ? "Update" :
@@ -505,7 +506,7 @@ function print_search_pr_outputs(io, spec; dir=pwd(), haystack=nothing)
     advisory_str = n_total == 1 ? "advisory" : "advisories"
     println(io, "n_changed=", n_total)
     println(io, "title=[automatic] $verb $n_total $advisory_str for $pkg_str")
-    println(io, "recipe_updates=", JSON3.write([Dict("name"=>name, "version"=>string(version)) for (name, version) in sort!(collect(recipe_updates))]))
+    println(io, "recipe_updates=", JSON3.write([Dict("name"=>name, "version"=>string(version)) for ((name, _), version) in sort!(collect(recipe_updates), by=x->(x[1][1], something(x[1][2], "")))]))
     body = sprint() do io
         pkgs_str = join("**" .* unique_pkgs .* "**", ", ", ", and ")
         if haystack !== nothing

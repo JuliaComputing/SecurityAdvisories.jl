@@ -1,7 +1,7 @@
 module SecurityAdvisories
 
 include("VersionStrings.jl")
-using .VersionStrings: VersionString, VERSION_PROJECT
+using .VersionStrings: VersionString
 
 include("common.jl")
 include("CVSS.jl")
