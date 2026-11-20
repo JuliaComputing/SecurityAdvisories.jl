@@ -1,5 +1,4 @@
 import Repology
-using Base.ScopedValues: with
 using JSON3: JSON3
 using TOML: TOML
 using Pkg: Pkg, Registry
